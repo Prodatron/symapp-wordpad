@@ -140,9 +140,9 @@ use_SyFile_DIRMOV       equ 0   ;Moves a file or sub directory
 use_SyFile_DIRINF       equ 0   ;Returns information about one drive
 use_SyFile_DEVDIR       equ 0   ;Reads the content of a directory (extended)
 
-READ "..\..\..\SVN-Main\trunk\Docs-Developer\symbos_lib-SystemManager.asm"
-READ "..\..\..\SVN-Main\trunk\Docs-Developer\symbos_lib-DesktopManager.asm"
-READ "..\..\..\SVN-Main\trunk\Docs-Developer\symbos_lib-FileManager.asm"
+READ "..\..\..\..\SVN-Main\trunk\Docs-Developer\symbos_lib-SystemManager.asm"
+READ "..\..\..\..\SVN-Main\trunk\Docs-Developer\symbos_lib-DesktopManager.asm"
+READ "..\..\..\..\SVN-Main\trunk\Docs-Developer\symbos_lib-FileManager.asm"
 READ "App-Wordpad.asm"
 
 App_EndTrns
