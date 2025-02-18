@@ -3,7 +3,7 @@ nolist
 org #1000
 
 WRITE "f:\symbos\apps\wordpad.exe"
-READ "..\..\..\..\SVN-Main\trunk\SymbOS-Constants.asm"
+READ "..\..\..\SRC-Main\SymbOS-Constants.asm"
 
 relocate_start
 
@@ -123,10 +123,11 @@ use_SyFile_FILOPN       equ 1   ;Opens an existing file
 use_SyFile_FILCLO       equ 1   ;Closes an opened file
 use_SyFile_FILINP       equ 1   ;Reads an amount of bytes out of an opened file
 use_SyFile_FILOUT       equ 1   ;Writes an amount of bytes into an opened file
-use_SyFile_FILPOI       equ 0   ;Moves the file pointer to another position
+use_SyFile_FILPOI       equ 1   ;Moves the file pointer to another position
 use_SyFile_FILF2T       equ 0   ;Decodes the file timestamp
 use_SyFile_FILT2F       equ 0   ;Encodes the file timestamp
 use_SyFile_FILLIN       equ 0   ;Reads one text line out of an opened file
+use_SyFile_FILCPR       equ 1   ;Reads (un)compressed data out of an opened file
 use_SyFile_DIRDEV       equ 0   ;Sets the current drive
 use_SyFile_DIRPTH       equ 0   ;Sets the current path
 use_SyFile_DIRPRS       equ 0   ;Changes a property of a file or a directory
@@ -140,9 +141,9 @@ use_SyFile_DIRMOV       equ 0   ;Moves a file or sub directory
 use_SyFile_DIRINF       equ 0   ;Returns information about one drive
 use_SyFile_DEVDIR       equ 0   ;Reads the content of a directory (extended)
 
-READ "..\..\..\..\SVN-Main\trunk\Docs-Developer\symbos_lib-SystemManager.asm"
-READ "..\..\..\..\SVN-Main\trunk\Docs-Developer\symbos_lib-DesktopManager.asm"
-READ "..\..\..\..\SVN-Main\trunk\Docs-Developer\symbos_lib-FileManager.asm"
+READ "..\..\..\SRC-Main\Docs-Developer\symbos_lib-SystemManager.asm"
+READ "..\..\..\SRC-Main\Docs-Developer\symbos_lib-DesktopManager.asm"
+READ "..\..\..\SRC-Main\Docs-Developer\symbos_lib-FileManager.asm"
 READ "App-Wordpad.asm"
 
 App_EndTrns

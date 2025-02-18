@@ -136,6 +136,7 @@ db 123,124,125,126
 maiwinnum   db 0    ;main     window ID
 drpwinnum   db -1   ;font downdown w ID
 diawin      db 0    ;dialogue window ID
+tmpwin      db -1   ;print window
 windatsup   equ 51
 
 prgprz  call prgpar
@@ -742,7 +743,11 @@ sty2as3 ld a," "        ;space -> return " "
         ret
 sty2as4 cp 32
         jr nc,sty2as6
-sty2as5 ld a,"?"        ;special -> return "?"
+sty2as5 cp 030:jr z,styaup
+        cp 031:jr z,styadw
+        cp 139:jr z,styalf
+        cp 155:jr z,styarg
+        ld a,"?"        ;special -> return "?"
         ret
 sty2as6 cp 126+1
         ret c           ;32-126 ** NORMAL **
@@ -758,6 +763,10 @@ sty2as6 cp 126+1
         jr nc,sty2nr3   ;220-255 **ITALICS**
         add 33-127      ;127-219 **BOLD**
         ret
+styaup  ld a,"^":ret
+styadw  ld a,"v":ret
+styalf  ld a,"<":ret
+styarg  ld a,">":ret
 
 ;### STY2NR -> convert normal/bold/italics/underlined style to normal style
 ;### Input      A=char
@@ -907,21 +916,15 @@ cfglod  call cfgget
         ld hl,(cfgpth)
         ld a,(App_BnkNum)
         db #dd:ld h,a
-        call SySystem_CallFunction
-        db MSC_SYS_SYSFIL
-        db FNC_FIL_FILOPN           ;open file
+        call SyFile_FILOPN          ;open file
         ret c
         ld hl,cfgdat
         ld bc,256
         ld de,(App_BnkNum)
         push af
-        call SySystem_CallFunction
-        db MSC_SYS_SYSFIL
-        db FNC_FIL_FILINP           ;load configdata
+        call SyFile_FILINP          ;load configdata
         pop af
-        call SySystem_CallFunction
-        db MSC_SYS_SYSFIL
-        db FNC_FIL_FILCLO           ;close file
+        call SyFile_FILCLO          ;close file
         ret
 
 ;### CFGINI -> Initialize config
@@ -998,9 +1001,7 @@ cfgfnt  ld hl,txtmulobj+texdatflg
         ld hl,(cfgpth)
         ld a,(App_BnkNum)
         db #dd:ld h,a
-        call SySystem_CallFunction
-        db MSC_SYS_SYSFIL
-        db FNC_FIL_FILOPN           ;open file
+        call SyFile_FILOPN          ;open file
         pop bc
         ret c
         push af
@@ -1026,31 +1027,30 @@ cfgfnt  ld hl,txtmulobj+texdatflg
         add hl,hl                   ;hl=chars*16+2=fontlen
         push hl
         ld iy,0
-        call SySystem_CallFunction
-        db MSC_SYS_SYSFIL
-        db FNC_FIL_FILPOI           ;move to font data
+        call SyFile_FILPOI          ;move to font data
+        ld hl,txtbufmem
+        ld de,txtbufmax+1
+        push af
+        add hl,de
+        pop af
         pop bc                      ;bc=fontlen
         pop de
         jr c,cfgfnt0
-        ld a,d                      ;a=file handler
-        ld hl,txtbufmem
-        ld de,txtbufmax+1
-        add hl,de
         ld (txtmulobj+texdatfnt),hl
+        ld a,(cfgfntcpr)
+        sub 1
+        ccf                         ;cf=compressed
+        ld a,d                      ;a=file handler
         ld de,(App_BnkNum)
         push af
-        call SySystem_CallFunction
-        db MSC_SYS_SYSFIL
-        db FNC_FIL_FILINP           ;load font
+        call SyFile_FILCPR          ;load font
         pop bc
         jr c,cfgfnt0
         call cfgfnt1
         ld a,(cfgdatfnt)
         ld (cfgfntl),a
 cfgfnt0 ld a,b
-        call SySystem_CallFunction
-        db MSC_SYS_SYSFIL
-        db FNC_FIL_FILCLO           ;close file
+        call SyFile_FILCLO          ;close file
 cfgfnt2 ld a,(cfgdatfnt)            ;update selected dropdown entry
         add a
         ld l,a
@@ -1072,21 +1072,15 @@ cfgsav  ld hl,(cfgpth)      ;open config file
         ld a,(App_BnkNum)
         db #dd:ld h,a
         xor a
-        call SySystem_CallFunction
-        db MSC_SYS_SYSFIL
-        db FNC_FIL_FILOPN
+        call SyFile_FILOPN
         ret c
         ld de,(App_BnkNum)   ;save config
         ld hl,cfgdat
         ld bc,16
         push af
-        call SySystem_CallFunction
-        db MSC_SYS_SYSFIL
-        db FNC_FIL_FILOUT
+        call SyFile_FILOUT
         pop af              ;close config file
-        call SySystem_CallFunction
-        db MSC_SYS_SYSFIL
-        db FNC_FIL_FILCLO
+        call SyFile_FILCLO
         ret
 
 ;### CFGOPN -> Open config-dialogue
@@ -1436,18 +1430,53 @@ filprtcod   db 27,"B",27,"b"
             db 27,"I",27,"i"
             db 27,"U",27,"u"
 
-filprtpth   db "a:\spooler\wordpad.job",0
+filprtpth1  db "printd\wdpd"
+filprtpth2  db "####.job",0
+filprtpth3
+filprtpth   ds 32+filprtpth3-filprtpth1
 filprthnd   db 0
 
-filprt  ld hl,filprtpth
+filprt  ld de,256*32+5          ;get system path
+        ld ix,filprtpths
+        ld iy,0
+        ld hl,jmp_sysinf:rst #28
+        ld a,r                  ;create random filename
+        and 63
+        call clcdez
+        ld (filprtpth2+0),hl
+        rst #20:dw jmp_timget
+        call clcdez
+        ld (filprtpth2+2),hl
+        ld hl,filprtpths        ;build complete printd-path
+        ld de,filprtpth
+filprt6 ld a,(hl)
+        ldi
+        or a
+        jr nz,filprt6
+        dec de
+        ld hl,filprtpth1
+        ld bc,filprtpth3-filprtpth1
+        ldir
+
+        ld hl,filprtpth         ;open job file
         ld a,(App_BnkNum)
         db #dd:ld h,a
         xor a
         call SyFile_FILNEW
-        ret c
+        ld hl,prgtxterr5
+        ld b,1+8+64
+        jp c,prginf1
         ld (filprthnd),a
 
-        ld hl,txtbufmem
+        ld de,winprtdat
+        ld a,#81
+        ld (de),a
+        ld a,(App_BnkNum)
+        call SyDesktop_WINOPN   ;open "printing..." window
+        jr c,filprt8
+        ld (tmpwin),a
+
+filprt8 ld hl,txtbufmem
         xor a
         ld (filprtfnt),a
 
@@ -1487,17 +1516,26 @@ filprt5 ld (de),a
         push hl
         call filprt0
         pop hl
+        ;...CF=1 -> error, finished
         jr filprt1
 
 filprt4 call filprt0        ;print last part to file and close
         ld a,(filprthnd)
         call SyFile_FILCLO
+
+        ld a,(tmpwin)
+        cp -1
+        call nz,SyDesktop_WINCLS   ;close "printing..." window
+        ld a,-1
+        ld (tmpwin),a
+
         jp prgprz0
 
 filprt0 ex de,hl            ;print part to file (de=buf pos)
         ld de,prtbufmem
         or a
         sbc hl,de
+        ret z
         ld c,l:ld b,h
         ld hl,prtbufmem
         ld de,(App_BnkNum)
@@ -2399,23 +2437,29 @@ db #81,#11,#81,#11,#11,#11,#11,#18,#11,#81,#18,#88,#88,#11,#18,#11,#11,#88
 docmsk  db "TXT",0
 docpth  ds 256
 
+filprtpths  ds 32
 
 prgwintit   db "untitled - Wordpad",0:ds 12-8
 prgwinsta   ds 4*11
 
 prgtxtinf1  db "Wordpad for SymbOS",0
-prgtxtinf2  db " Version 1.0 (Build "
-read "..\..\..\SVN-Main\trunk\build.asm"
+prgtxtinf2  db " Version 1.1 (Build "
+read "..\..\..\SRC-Main\build.asm"
             db "pdt)",0
-prgtxtinf3  db " Copyright <c> 2022 SymbiosiS"
+prgtxtinf3  db " Copyright <c> 2025 SymbiosiS"
 prgtxtinf0  db 0
 
 prgtxterra  db "Textbuffer full. Only a part of",0
 prgtxterrb  db "the document has been loaded.",0
+
 prgtxterrc  db "Error while loading file!",0
+
 prgtxterrd  db "Error while saving file!",0
+
 prgtxterre  db "Device full. Only a part of",0
 prgtxterrf  db "the document has been saved.",0
+
+prgtxterrg  db "Printer Daemon not found.",0
 
 prgtxtsav1  db "Save changes?",0
 
@@ -2489,36 +2533,64 @@ cfgwintxtb  db "Preview",0
 
 ;### MENU #####################################################################
 
+menicn_null         db 4,8,1:dw $+7,$+4,4:db 5: db #66,#66,#66,#66
+
 prgwinmentx1 db "File",0
-prgwinmen1tx1 db "New",0
-prgwinmen1tx2 db "Open...",0
-prgwinmen1tx3 db "Save",0
-prgwinmen1tx4 db "Save As...",0
-prgwinmen1tx5 db "Print...",0
-prgwinmen1tx6 db "Exit",0
+prgwinmen1tx1 db 6,128,-1:dw menicn_filenew+1:      db " New",0
+prgwinmen1tx2 db 6,128,-1:dw menicn_fileopen+1:     db " Open...",0
+prgwinmen1tx3 db 6,128,-1:dw menicn_filesave+1:     db " Save",0
+prgwinmen1tx4 db 6,128,-1:dw menicn_filesaveas+1:   db " Save As...",0
+prgwinmen1tx5 db 6,128,-1:dw menicn_print+1:        db " Print...",0
+prgwinmen1tx6 db 6,128,-1:dw menicn_quit+1:         db " Exit",0
+
+menicn_filenew      db 4,8,7:dw $+7,$+4,28:db 5: db #61,#11,#11,#66, #61,#88,#81,#16, #61,#88,#88,#16, #61,#88,#88,#16, #61,#88,#88,#16, #61,#88,#88,#16, #61,#11,#11,#16
+menicn_fileopen     db 4,8,7:dw $+7,$+4,28:db 5: db #61,#16,#66,#66, #18,#81,#16,#66, #18,#88,#77,#77, #18,#87,#22,#27, #18,#72,#22,#76, #17,#22,#27,#66, #77,#77,#76,#66
+menicn_filesave     db 4,8,7:dw $+7,$+4,28:db 5: db #11,#11,#11,#11, #1f,#ee,#ee,#f1, #1f,#ee,#ee,#f1, #1f,#ff,#ff,#f1, #1f,#11,#c1,#f1, #1f,#11,#c1,#f1, #61,#11,#11,#11
+menicn_filesaveas   db 4,8,7:dw $+7,$+4,28:db 5: db #66,#11,#11,#16, #66,#18,#88,#11, #11,#11,#11,#81, #1f,#ee,#f1,#81, #1f,#ff,#f1,#81, #1f,#11,#f1,#11, #61,#11,#11,#66
+menicn_print        db 4,8,7:dw $+7,$+4,28:db 5: db #66,#61,#11,#11, #66,#18,#d8,#16, #61,#8d,#81,#66, #11,#11,#11,#16, #1a,#aa,#0a,#76, #1a,#9a,#9a,#76, #67,#77,#77,#66
+menicn_quit         db 4,8,7:dw $+7,$+4,28:db 5: db #11,#16,#16,#66, #14,#46,#11,#66, #14,#11,#1e,#16, #14,#1e,#ee,#e1, #14,#11,#1e,#16, #14,#46,#11,#66, #11,#16,#16,#66
 
 prgwinmentx2 db "Edit",0
-prgwinmen2tx1 db "Cut",0
-prgwinmen2tx2 db "Copy",0
-prgwinmen2tx3 db "Paste",0
-prgwinmen2tx4 db "Delete",0
-prgwinmen2tx5 db "Find...",0
-prgwinmen2tx6 db "Find Again",0
-prgwinmen2tx7 db "Replace...",0
-prgwinmen2tx8 db "Go To...",0
-prgwinmen2tx9 db "Select All",0
-prgwinmen2txa db "Time/Date",0
+prgwinmen2tx1 db 6,128,-1:dw menicn_cut+1:          db " Cut",0
+prgwinmen2tx2 db 6,128,-1:dw menicn_copy+1:         db " Copy",0
+prgwinmen2tx3 db 6,128,-1:dw menicn_paste+1:        db " Paste",0
+prgwinmen2tx4 db 6,128,-1:dw menicn_delete+1:       db " Delete",0
+prgwinmen2tx5 db 6,128,-1:dw menicn_find+1:         db " Find...",0
+prgwinmen2tx6 db 6,128,-1:dw menicn_findagain+1:    db " Find Again",0
+prgwinmen2tx7 db 6,128,-1:dw menicn_replace+1:      db " Replace...",0
+prgwinmen2tx8 db 6,128,-1:dw menicn_goto+1:         db " Go To...",0
+prgwinmen2tx9 db 6,128,-1:dw menicn_textall+1:      db " Select All",0
+prgwinmen2txa db 6,128,-1:dw menicn_datetime+1:     db " Time/Date",0
+
+menicn_cut          db 4,8,7:dw $+7,$+4,28:db 5: db #61,#a6,#a1,#66, #61,#a6,#a1,#66, #66,#16,#16,#66, #66,#61,#66,#66, #66,#71,#76,#66, #67,#a7,#a7,#66, #67,#76,#77,#66
+menicn_copy         db 4,8,7:dw $+7,$+4,28:db 5: db #55,#55,#56,#66, #58,#88,#56,#66, #58,#88,#57,#77, #58,#88,#50,#07, #55,#55,#50,#07, #66,#67,#00,#07, #66,#67,#77,#77
+menicn_paste        db 4,8,7:dw $+7,$+4,28:db 5: db #66,#33,#36,#66, #33,#22,#23,#36, #32,#22,#22,#36, #32,#55,#55,#55, #33,#58,#88,#85, #66,#58,#88,#85, #66,#55,#55,#55
+menicn_delete       db 4,8,7:dw $+7,$+4,28:db 5: db #ff,#66,#66,#ff, #6f,#f6,#6f,#f6, #66,#ff,#ff,#66, #66,#6f,#f6,#66, #66,#ff,#ff,#66, #6f,#f6,#6f,#f6, #ff,#66,#66,#ff
+menicn_find         db 4,8,7:dw $+7,$+4,28:db 5: db #66,#16,#61,#66, #61,#71,#17,#16, #61,#71,#17,#16, #17,#71,#17,#71, #18,#16,#61,#81, #17,#16,#61,#71, #11,#16,#61,#11
+menicn_findagain    db 4,8,7:dw $+7,$+4,28:db 5: db #61,#66,#16,#66, #67,#11,#76,#f6, #17,#11,#71,#f6, #18,#11,#81,#f6, #17,#66,#71,#f6, #11,#66,#1f,#ff, #66,#66,#66,#f6
+menicn_replace      db 4,8,7:dw $+7,$+4,28:db 5: db #66,#61,#11,#16, #66,#61,#88,#11, #33,#33,#88,#81, #33,#63,#38,#81, #33,#33,#88,#81, #33,#63,#31,#11, #33,#63,#36,#66
+menicn_goto         db 4,8,7:dw $+7,$+4,28:db 5: db #66,#66,#66,#f6, #ff,#ff,#ff,#ff, #66,#66,#66,#f6, #61,#16,#61,#66, #16,#66,#16,#16, #16,#16,#16,#16, #61,#16,#61,#66
+menicn_textall      db 4,8,7:dw $+7,$+4,28:db 5: db #ff,#ff,#ff,#ff, #88,#88,#88,#86, #ff,#ff,#ff,#f6, #88,#88,#86,#66, #ff,#ff,#f6,#66, #88,#88,#88,#66, #ff,#ff,#ff,#66
+menicn_datetime     db 4,8,7:dw $+7,$+4,28:db 5: db #66,#77,#77,#66, #67,#8a,#18,#76, #78,#88,#18,#87, #7a,#81,#88,#a7, #78,#18,#88,#87, #67,#88,#a8,#76, #66,#77,#77,#66
 
 prgwinmentx3 db "Format",0
-prgwinmen3tx1 db "Auto word wrap",0
-prgwinmen3tx2 db "Settings...",0
+prgwinmen3tx1 db 6,128,-1:dw menicn_null+1:         db " Auto word wrap",0
+prgwinmen3tx2 db 6,128,-1:dw menicn_settings+1:     db " Settings...",0
+
+;     _worwrap
+menicn_settings     db 4,8,7:dw $+7,$+4,28:db 5: db #66,#6c,#66,#66, #6c,#6c,#6c,#66, #6f,#cd,#cf,#66, #cc,#c1,#cc,#c6, #ff,#cc,#cf,#f6, #6c,#fc,#fc,#66, #6f,#6c,#6f,#66
 
 prgwinmentx4 db "View",0
-prgwinmen4tx1 db "Status bar",0
+prgwinmen4tx1 db 6,128,-1:dw menicn_null+1:         db " Status bar",0
+
+;     _viewstatus
 
 prgwinmentx5 db "?",0
-prgwinmen5tx1 db "Index",0
-prgwinmen5tx2 db "About Wordpad...",0
+prgwinmen5tx1 db 6,128,-1:dw menicn_help+1:         db " Index",0
+prgwinmen5tx2 db 6,128,-1:dw menicn_about+1:        db " About Wordpad...",0
+
+menicn_help         db 4,8,7:dw $+7,$+4,28:db 5: db #66,#1f,#f1,#66, #61,#fc,#cf,#16, #1f,#ff,#fc,#f1, #ff,#fc,#cc,#f1, #ff,#ff,#ff,#18, #1f,#cf,#f1,#81, #61,#ff,#18,#16
+menicn_about        db 4,8,7:dw $+7,$+4,28:db 5: db #66,#10,#07,#66, #66,#10,#07,#66, #66,#66,#66,#66, #61,#00,#07,#66, #66,#10,#07,#66, #66,#10,#07,#66, #61,#00,#00,#76
 
 ;### ALERT BOXES ##############################################################
 
@@ -2528,6 +2600,7 @@ prgtxterr1  dw prgtxterra,4*1+2,prgtxterrb,4*1+2,prgtxtinf0,4*1+2
 prgtxterr2  dw prgtxterrc,4*1+2,prgtxtinf0,4*1+2,prgtxtinf0,4*1+2
 prgtxterr3  dw prgtxterrd,4*1+2,prgtxtinf0,4*1+2,prgtxtinf0,4*1+2
 prgtxterr4  dw prgtxterre,4*1+2,prgtxterrf,4*1+2,prgtxtinf0,4*1+2
+prgtxterr5  dw prgtxterrg,4*1+2,prgtxtinf0,4*1+2,prgtxtinf0,4*1+2   ;no printer daemon
 
 prgtxtsav   dw prgtxtsav1,4*1+2,prgtxtinf0,4*1+2,prgtxtinf0,4*1+2
 
@@ -2535,6 +2608,16 @@ prgtxtfnd   dw fndmsgtxt1,4*1+2,prgtxtinf0,4*1+2,prgtxtinf0,4*1+2
 prgtxtrep   dw fndmsgtxt2a,4*1+2,prgtxtinf0,4*1+2,prgtxtinf0,4*1+2,prgicnbig
 prgtxtmem   dw fndmsgtxt3a,4*1+2,fndmsgtxt3b,4*1+2,prgtxtinf0,4*1+2
 prgtxtnum   dw fndmsgtxt4,4*1+2,prgtxtinf0,4*1+2,prgtxtinf0,4*1+2
+
+;### PRINTING WINDOW ##########################################################
+
+winprtdat   dw #0081,4+8+16, 0,0, 90, 20,0,0, 90, 20, 90, 20, 90, 20,0,0,0,0,winprtgrp,0,0:ds 136+14
+winprtgrp   db 2,0: dw winprtrec,0,0:db 0,0:dw 0,0,0
+winprtrec   dw 0,255*256+ 0,2,        0,0,1000,1000,0
+            dw 0,255*256+ 1,ctrprt1,0, 8, 90,   8,0
+
+ctrprt1     dw txtprt1:dw 256*2+4*1+2
+txtprt1     db "Printing...",0
 
 ;### CONFIG WINDOW ############################################################
 
@@ -2611,7 +2694,8 @@ cfgdatsta   db 1    ;flag, if statusbar
             ds 16-8
 
 cfgfntnum   db 0        ;number of fonts
-cfgfntdat   ds 256-16   ;font information (number/offset table, names)
+cfgfntdat   ds 254-16   ;font information (number/offset table, names)
+cfgfntcpr   db 0        ;flag, if fonts compressed
 
 ;### GOTO #####################################################################
 
@@ -2714,12 +2798,12 @@ prgwindat dw #7f01,3,50,20,200,106,0,0,200,106,100,50,10000,10000,prgicnsml,prgw
 prgwindat0 dw prgwinsta,prgwinmen,prgwingrp,prgtolgrp,17:ds 136+14
 
 prgwinmen  dw  5, 1+4,prgwinmentx1,prgwinmen1,0, 1+4,prgwinmentx2,prgwinmen2,0, 1+4,prgwinmentx3,prgwinmen3,0, 1+4,prgwinmentx4,prgwinmen4,0, 1+4,prgwinmentx5,prgwinmen5,0
-prgwinmen1 dw  8, 1,prgwinmen1tx1,filnew,0, 1,prgwinmen1tx2,filopn,0, 1,prgwinmen1tx3,filsav,0, 1,prgwinmen1tx4,filsas,0, 1+8,0,0,0, 1,prgwinmen1tx5,filprt,0, 1+8,0,0,0, 1,prgwinmen1tx6,prgend0,0
-prgwinmen2 dw 12, 1,prgwinmen2tx1,edtcut,0, 1,prgwinmen2tx2,edtcop,0, 1,prgwinmen2tx3,edtpas,0, 1,prgwinmen2tx4,edtdel,0, 1+8,0,0,0,                1,prgwinmen2tx5,fndfnd,0
-           dw     1,prgwinmen2tx6,fndfnx,0, 1,prgwinmen2tx7,fndrep,0, 1,prgwinmen2tx8,edtgot,0, 1+8,0,0,0,                1,prgwinmen2tx9,edtsal,0, 1,prgwinmen2txa,edttim,0
-prgwinmen3 dw  2, 1,prgwinmen3tx1,cfgwrp,0, 1,prgwinmen3tx2,cfgopn,0
-prgwinmen4 dw  1, 1,prgwinmen4tx1,cfgbar,0
-prgwinmen5 dw  3, 1,prgwinmen5tx1,prghlp,0, 1+8,0,0,0, 1,prgwinmen5tx2,prginf,0
+prgwinmen1 dw  8, 17,prgwinmen1tx1,filnew,0, 17,prgwinmen1tx2,filopn,0, 17,prgwinmen1tx3,filsav,0, 17,prgwinmen1tx4,filsas,0, 1+8,0,0,0, 17,prgwinmen1tx5,filprt,0, 1+8,0,0,0, 17,prgwinmen1tx6,prgend0,0
+prgwinmen2 dw 12, 17,prgwinmen2tx1,edtcut,0, 17,prgwinmen2tx2,edtcop,0, 17,prgwinmen2tx3,edtpas,0, 17,prgwinmen2tx4,edtdel,0, 1+8,0,0,0, 17,prgwinmen2tx5,fndfnd,0
+           dw     17,prgwinmen2tx6,fndfnx,0, 17,prgwinmen2tx7,fndrep,0, 17,prgwinmen2tx8,edtgot,0, 1+8,0,0,0, 17,prgwinmen2tx9,edtsal,0, 17,prgwinmen2txa,edttim,0
+prgwinmen3 dw  2, 17,prgwinmen3tx1,cfgwrp,0, 17,prgwinmen3tx2,cfgopn,0
+prgwinmen4 dw  1, 17,prgwinmen4tx1,cfgbar,0
+prgwinmen5 dw  3, 17,prgwinmen5tx1,prghlp,0, 1+8,0,0,0, 17,prgwinmen5tx2,prginf,0
 
 prgtolgrp db 13,0:dw prgtolrec,0,0,256*0+0,0,0,2
 prgtolrec
